@@ -1,11 +1,21 @@
 # ORGANISM — Attic Bass
 
-Один файл. Один оператор. Canvas отдельно от booth.
+Один файл `index.html`. Один оператор.
 
-## Путь камеры
-VOID → CLAP на 8-й beat / Space → INNER.
-GEN растёт только по фразе.
+Цвет: чёрный камень + один синий. Не радуга.
+
+## Как
+```
+git clone https://github.com/atticbass-tallinn/organism.git
+cd organism
+python3 -m http.server 8080
+```
+Открыть `http://localhost:8080` — не blob GitHub и не raw.
+
+## Путь
+VOID → CLAP (Space / 8-й beat) → INNER.
+GEN только по фразе.
 
 ## Пульт
-L/ARM line-in · 1–5 FX · Space CLAP · H hide booth · R rec canvas
+L ARM · 1–5 FX · Space CLAP · H booth off · R rec canvas
 `?program=1` — без booth.
