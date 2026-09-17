@@ -1,44 +1,121 @@
 <!DOCTYPE html>
-<html lang="ru">
-<head>
+<html lang="ru"><head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Attic Bass · ORGANISM</title>
 <style>
-:root{--bg:#09090B;--chrome:#C8CCD4;--dim:#6B7080;--line:#1C1D22;--amber:#E8A24A;--cyan:#3EC7C9;--pad:#14151A}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:var(--bg);color:var(--chrome);font:12px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden}
-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;background:#000}
-#booth{position:fixed;left:12px;right:12px;bottom:12px;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:rgba(9,9,11,.72);border:1px solid var(--line);padding:10px 12px;backdrop-filter:blur(8px)}
-body.clean #booth{display:none}
-.col{display:flex;flex-direction:column;gap:6px;min-width:0}
-.lab{color:var(--dim);letter-spacing:.08em;text-transform:uppercase;font-size:10px}
-select,button{background:var(--pad);color:var(--chrome);border:1px solid #2A2C33;height:32px;padding:0 10px;font:inherit;cursor:pointer}
-select{min-width:180px;max-width:42vw}
-button.on{border-color:var(--amber);color:var(--amber)}
-button.live{border-color:var(--cyan);color:var(--cyan)}
-button.rec{border-color:#E25B4A;color:#E25B4A}
-#pads{display:flex;gap:6px;flex-wrap:wrap}#pads button{min-width:64px}
-#meter{width:120px;height:8px;background:#1A1B20;border:1px solid var(--line)}
-#meter>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--amber))}
-#stat{color:var(--dim);white-space:nowrap}
-#lamp{width:8px;height:8px;border-radius:50%;background:#2A2C33;display:inline-block;margin-right:6px}
-#lamp.hot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
-#err{position:fixed;top:12px;left:12px;right:12px;z-index:3;color:#E25B4A;display:none}
+html,body{margin:0;height:100%;background:#09090B;color:#C8CCD4;font:12px ui-monospace,monospace;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#ui{position:fixed;left:10px;right:10px;bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:rgba(9,9,11,.75);border:1px solid #1C1D22;padding:8px 10px}
+button{background:#14151A;color:#C8CCD4;border:1px solid #2A2C33;height:32px;padding:0 10px;font:inherit}
+button.on{border-color:#3A7AFF;color:#3A7AFF}
+#err{position:fixed;top:10px;left:10px;color:#E25B4A}
 </style>
-</head>
-<body>
+</head><body>
 <canvas id="c"></canvas>
 <div id="err"></div>
-<div id="booth">
-<div class="col"><span class="lab">line-in</span><select id="dev"><option value="">— выбрать устройство —</option></select></div>
-<div class="col"><span class="lab">вход</span><button id="arm">ARM</button></div>
-<div class="col"><span class="lab">fx</span><div id="pads"><button data-fx="mirror">MIRROR</button><button data-fx="double">DOUBLE</button><button data-fx="feed">FEED</button><button data-fx="prism">PRISM</button><button data-fx="ghost">GHOST</button></div></div>
-<div class="col"><span class="lab">amount</span><input id="amt" type="range" min="0" max="1" step="0.01" value="0.55" style="width:110px;accent-color:#C8CCD4"/></div>
-<div class="col"><span class="lab">камера</span><button id="clap">CLAP</button></div>
-<div class="col"><span class="lab">запись canvas</span><button id="rec">REC</button></div>
-<div class="col"><span class="lab">уровень</span><div id="meter"><i id="mfill"></i></div><div id="stat"><i id="lamp"></i><span id="sinfo">VOID · GEN 0 · нет сетки</span></div></div>
+<div id="ui">
+<button id="clap">CLAP</button>
+<button data-fx="mirror">MIRROR</button>
+<button data-fx="feed">FEED</button>
+<button data-fx="prism">PRISM</button>
+<button data-fx="ghost">GHOST</button>
+<span id="s">VOID</span>
 </div>
-<script src="organism.js"></script>
-</body>
-</html>
+<script>
+const VS=`#version 300 es
+in vec2 a;void main(){gl_Position=vec4(a,0,1);}`;
+const FS=`#version 300 es
+precision highp float;out vec4 o;
+uniform vec2 uR;uniform float uT,uIn,uMirr,uFeed,uPrism,uGhost;
+uniform sampler2D uPrev;
+float pl(vec3 p,vec3 n,float w){return dot(abs(p),normalize(n))-w;}
+float hex(vec3 p,float r,float h){
+  vec3 k=vec3(-0.8660254,0.5,0.57735);
+  p=abs(p);p.xy-=2.*min(dot(k.xy,p.xy),0.)*k.xy;
+  vec2 d=vec2(length(p.xy-vec2(clamp(p.x,-k.z*r,k.z*r),r))*sign(p.y-r),abs(p.z)-h);
+  return min(max(d.x,d.y),0.)+length(max(d,0.));
+}
+float cr(vec3 p){
+  float s=pl(p,vec3(1,1,1),1.02);
+  s=max(s,pl(p,vec3(1,1,0),0.96));
+  s=max(s,pl(p,vec3(1,0,1),0.96));
+  s=max(s,pl(p,vec3(0,1,1),0.96));
+  s=max(s,pl(p,vec3(1,.35,.18),0.88));
+  s=max(s,length(p)-1.22);
+  s=max(s,-hex(p-vec3(0,0,.15),0.28,1.35));
+  return s;
+}
+float map(vec3 p){float o=cr(p);return max(o,-(cr(p*1.12)+0.07));}
+vec3 nrm(vec3 p){vec2 e=vec2(.002,0);return normalize(vec3(map(p+e.xyy)-map(p-e.xyy),map(p+e.yxy)-map(p-e.yxy),map(p+e.yyx)-map(p-e.yyx)));}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*uR)/min(uR.x,uR.y);
+  vec2 suv=gl_FragCoord.xy/uR;
+  if(uMirr>.5) uv.x=abs(uv.x);
+  float a=uT*.12;
+  vec3 outP=vec3(cos(a)*3.15,.55,sin(a)*3.15);
+  vec3 inn=vec3(.02,.02,.05);
+  vec3 ro=mix(outP,inn,uIn);
+  vec3 ta=mix(vec3(0),vec3(0,.1,-.4),uIn);
+  vec3 ww=normalize(ta-ro),uu=normalize(cross(vec3(0,1,0),ww)),vv=cross(ww,uu);
+  vec3 rd=normalize(uu*uv.x+vv*uv.y+ww*1.25);
+  float t=0.,hit=0.; vec3 p;
+  for(int i=0;i<64;i++){p=ro+rd*t;float d=map(p);if(d<.0015){hit=1.;break;}t+=clamp(d,.008,.25);if(t>12.)break;}
+  vec3 ink=vec3(.23,.48,1.),blk=vec3(.02,.025,.04),col=blk;
+  if(hit>.5){
+    vec3 n=nrm(p);
+    float diff=max(dot(n,normalize(vec3(.35,.85,.25))),0.);
+    float rim=pow(1.-max(dot(n,-rd),0.),2.6);
+    col=mix(blk,vec3(.07,.08,.1),diff);
+    col+=ink*rim*.55;
+    col+=ink*pow(max(dot(reflect(-normalize(vec3(.35,.85,.25)),n),-rd),0.),34.)*.5;
+  }
+  vec3 prev=texture(uPrev,suv).rgb;
+  if(uPrism>.5){float k=.012;float A=dot(texture(uPrev,clamp(suv+vec2(k,0.),0.,1.)).rgb,vec3(.33));float B=dot(texture(uPrev,clamp(suv-vec2(k,0.),0.,1.)).rgb,vec3(.33));col+=ink*(A-B);}
+  if(uFeed>.5){vec2 f=(suv-.5)*.98+.5;col=mix(col,texture(uPrev,clamp(f,0.,1.)).rgb,.55);}
+  if(uGhost>.5) col=mix(col,prev,.62);
+  o=vec4(clamp(col,0.,1.),1.);
+}`;
+const err=document.getElementById('err');
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){err.textContent='WebGL2 нет';throw 0;}
+function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(x));return x;}
+const P=gl.createProgram();gl.attachShader(P,sh(gl.VERTEX_SHADER,VS));gl.attachShader(P,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(P);
+if(!gl.getProgramParameter(P,gl.LINK_STATUS)){err.textContent=gl.getProgramInfoLog(P);throw 0;}
+gl.useProgram(P);
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(P,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};for(const n of ['uR','uT','uIn','uMirr','uFeed','uPrism','uGhost','uPrev'])U[n]=gl.getUniformLocation(P,n);
+const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,8,8,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+const st={in:0,tgt:0,mirr:0,feed:0,prism:0,ghost:0};
+document.getElementById('clap').onclick=()=>st.tgt=st.tgt>0.5?0:1;
+document.getElementById('ui').onclick=e=>{
+  const k=e.target.dataset&&e.target.dataset.fx;if(!k)return;
+  st[k]=st[k]?0:1;e.target.classList.toggle('on',!!st[k]);
+};
+function frame(now){
+  requestAnimationFrame(frame);
+  const dpr=Math.min(devicePixelRatio||1,1.75);
+  const w=Math.max(2,innerWidth*dpr|0),h=Math.max(2,innerHeight*dpr|0);
+  if(c.width!==w||c.height!==h){c.width=w;c.height=h;gl.viewport(0,0,w,h);gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);}
+  st.in+=(st.tgt-st.in)*0.06;
+  gl.uniform2f(U.uR,c.width,c.height);
+  gl.uniform1f(U.uT,now*0.001);
+  gl.uniform1f(U.uIn,st.in);
+  gl.uniform1f(U.uMirr,st.mirr);gl.uniform1f(U.uFeed,st.feed);gl.uniform1f(U.uPrism,st.prism);gl.uniform1f(U.uGhost,st.ghost);
+  gl.uniform1i(U.uPrev,0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.copyTexImage2D(gl.TEXTURE_2D,0,gl.RGBA,0,0,c.width,c.height,0);
+  document.getElementById('s').textContent=st.in>0.5?'INNER':'VOID';
+}
+requestAnimationFrame(frame);
+</script>
+</body></html>
