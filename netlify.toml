@@ -2,6 +2,18 @@
   publish = "."
   command = "true"
 
+# Прод — только ветка production в UI (main).
+[context.production]
+  command = "true"
+  ignore = "exit 1"
+
+# Чужие ветки и PR не собирать.
+[context.branch-deploy]
+  ignore = "exit 0"
+
+[context.deploy-preview]
+  ignore = "exit 0"
+
 [[headers]]
   for = "/*"
   [headers.values]
