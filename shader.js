@@ -35,7 +35,6 @@ float planeCut(vec3 p, vec3 n, float w){
 }
 
 float crystal(vec3 p){
-  float g=clamp(uGen,0.,12.);
   float s=planeCut(p, vec3(1,1,1), 1.02);
   s=max(s, planeCut(p, vec3(1,1,0), 0.96));
   s=max(s, planeCut(p, vec3(1,0,1), 0.96));
@@ -43,7 +42,7 @@ float crystal(vec3 p){
   s=max(s, planeCut(p, vec3(1,.35,.18), 0.88));
   s=max(s, planeCut(p, vec3(.22,1,.4), 0.90));
   s=max(s, length(p)-1.22);
-  s=max(s, planeCut(p, vec3(.7,.2,1), 0.93+0.02*sin(g*0.7)));
+  s=max(s, planeCut(p, vec3(.7,.2,1), 0.93));
   float hole=hexPrism(p - vec3(0.,0.,0.15), 0.28, 1.35);
   s=max(s, -hole);
   return s;
@@ -56,14 +55,15 @@ float shell(vec3 p){
 }
 
 float veins(vec3 p){
-  float g=uGen;
-  float v=abs(fbm(p*3.1 + vec3(0., g*0.27, 0.03)));
+  float g=clamp(uGen,0.,12.);
+  float v=abs(fbm(p*3.1));
   float w=abs(fbm(p.zxy*4.4 + 2.7));
   float ridge=min(v, w);
-  float line=smoothstep(0.09, 0.015, ridge);
+  float thr=mix(0.028, 0.11, clamp(g/8.,0.,1.));
+  float line=smoothstep(thr, 0.006, ridge);
   float skin=1.0-smoothstep(0.0, 0.12, abs(crystal(p)));
-  float grow=0.45+0.55*clamp(g/6.,0.,1.);
-  return line*skin*grow;
+  float pot=0.18+0.82*clamp(g/8.,0.,1.);
+  return line*skin*pot;
 }
 
 vec2 map(vec3 p){
@@ -136,9 +136,10 @@ void main(){
     float pulse=0.45+0.55*uBass;
     col=base;
     col+=INK()*veinA*2.4*pulse;
+    col+=INK()*veinA*uClap*1.8;
     col+=INK()*rim*(0.22+0.40*uHigh);
     col+=INK()*spec*0.55;
-    col+=INK()*pow(uFlux,1.4)*0.16;
+    col+=INK()*veinA*pow(uFlux,1.4)*0.28;
     col=mix(col, BLK()*0.6, depth*0.5);
     if(uIn>0.55){
       float vault=pow(max(dot(n,vec3(0,1,0)),0.),2.);
@@ -146,7 +147,7 @@ void main(){
     }
   }
 
-  col+=INK()*uClap*0.35;
+  col+=INK()*uClap*0.08;
   col=max(col,vec3(0.));
   col=col/(1.+col*0.28);
   col=pow(col,vec3(0.95));
