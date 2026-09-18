@@ -42,6 +42,7 @@ function makeTex(){
   return t;
 }
 const prevTex=makeTex();
+let pw=8,ph=8;
 
 const st={
   fx:{mirror:0,double:0,feed:0,prism:0,ghost:0},
@@ -53,30 +54,41 @@ const st={
 };
 
 const audio={ctx:null, analyser:null, src:null, stream:null, spec:null, prev:null, lastBeat:0, beats:0};
+const DEV_KEY='organism.linein';
 
 async function listDev(){
   try{
+    if(!navigator.mediaDevices?.enumerateDevices) return;
     const list=await navigator.mediaDevices.enumerateDevices();
     const ins=list.filter(d=>d.kind==='audioinput');
     const sel=document.getElementById('dev');
-    const cur=sel.value;
-    sel.innerHTML='<option value="">— выбрать устройство —</option>';
+    const saved=localStorage.getItem(DEV_KEY)||'';
+    const cur=sel.value || saved;
+    sel.innerHTML='<option value="">системный по умолчанию</option>';
     for(const d of ins){
       const o=document.createElement('option');
       o.value=d.deviceId;
-      o.textContent=d.label || 'вход '+d.deviceId.slice(0,6);
+      o.textContent=d.label || ('вход '+d.deviceId.slice(0,8));
       sel.appendChild(o);
     }
-    if(cur) sel.value=cur;
+    if(cur && [...sel.options].some(o=>o.value===cur)) sel.value=cur;
+    if(!ins.length) fail('нет audioinput — разреши микрофон в браузере, https');
   }catch(e){ fail('устройства: '+e.message); }
 }
 
 async function arm(){
   try{
     if(!navigator.mediaDevices?.getUserMedia) throw new Error('getUserMedia нет (нужен https или localhost)');
-    const id=document.getElementById('dev').value;
+    errBox.style.display='none';
+    const sel=document.getElementById('dev');
+    const id=sel.value || localStorage.getItem(DEV_KEY) || '';
     if(audio.stream){ audio.stream.getTracks().forEach(t=>t.stop()); }
-    const cons={ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } };
+    const cons={ audio:{
+      echoCancellation:false,
+      noiseSuppression:false,
+      autoGainControl:false,
+      channelCount:{ideal:2}
+    } };
     if(id) cons.audio.deviceId={exact:id};
     const stream=await navigator.mediaDevices.getUserMedia(cons);
     audio.stream=stream;
@@ -84,16 +96,28 @@ async function arm(){
     if(audio.ctx.state==='suspended') await audio.ctx.resume();
     if(audio.src) try{ audio.src.disconnect(); }catch(_){}
     audio.src=audio.ctx.createMediaStreamSource(stream);
-    audio.analyser=audio.ctx.createAnalyser();
-    audio.analyser.fftSize=2048;
-    audio.analyser.smoothingTimeConstant=0.65;
+    if(!audio.analyser){
+      audio.analyser=audio.ctx.createAnalyser();
+      audio.analyser.fftSize=2048;
+      audio.analyser.smoothingTimeConstant=0.65;
+    }
     audio.spec=new Uint8Array(audio.analyser.frequencyBinCount);
     audio.prev=new Float32Array(audio.analyser.frequencyBinCount);
     audio.src.connect(audio.analyser);
+    const track=stream.getAudioTracks()[0];
+    const used=track?.getSettings?.().deviceId || id;
+    if(used) localStorage.setItem(DEV_KEY, used);
     st.armed=true;
-    document.getElementById('arm').classList.add('live');
+    const armBtn=document.getElementById('arm');
+    armBtn.classList.add('live');
+    armBtn.title=track?.label || used || 'armed';
     await listDev();
-  }catch(e){ fail('line-in: '+e.message); }
+    if(used && [...sel.options].some(o=>o.value===used)) sel.value=used;
+  }catch(e){
+    st.armed=false;
+    document.getElementById('arm').classList.remove('live');
+    fail('line-in: '+e.message);
+  }
 }
 
 function sampleAudio(){
@@ -139,12 +163,14 @@ function clapNow(){
 
 let rec=null, recChunks=[];
 function toggleRec(){
-  if(rec && rec.state==='recording'){ rec.stop(); return; }
+  if(rec && rec.state==='recording'){
+    rec.stop(); return;
+  }
   const stream=canvas.captureStream(30);
   const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' :
                MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : '';
   recChunks=[];
-  rec=new MediaRecorder(stream, mime?{mimeType:mime, videoBitsPerSecond:6000000}:{});
+  rec=new MediaRecorder(stream, mime?{mimeType:mime, videoBitsPerSecond:6_000_000}:{});
   rec.ondataavailable=e=>{ if(e.data.size) recChunks.push(e.data); };
   rec.onstop=()=>{
     const blob=new Blob(recChunks,{type:rec.mimeType||'video/webm'});
@@ -161,6 +187,12 @@ function toggleRec(){
 }
 
 document.getElementById('arm').onclick=arm;
+document.getElementById('dev').onchange=()=>{
+  const id=document.getElementById('dev').value;
+  if(id) localStorage.setItem(DEV_KEY, id);
+  else localStorage.removeItem(DEV_KEY);
+  if(st.armed) arm();
+};
 document.getElementById('clap').onclick=clapNow;
 document.getElementById('rec').onclick=toggleRec;
 document.getElementById('amt').oninput=e=>{ st.amt=+e.target.value; };
@@ -195,6 +227,7 @@ function fit(){
     gl.viewport(0,0,w,h);
     gl.bindTexture(gl.TEXTURE_2D, prevTex);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    pw=w; ph=h;
   }
 }
 
@@ -206,6 +239,7 @@ function frame(now){
   const dt=Math.min(0.05,(now-t0)/1000); t0=now;
   st.inside += (st.targetInside-st.inside)*Math.min(1, dt*(st.clap>0.4?8:2.2));
   st.clap=Math.max(0, st.clap-dt*2.4);
+
   gl.useProgram(prog);
   gl.bindTexture(gl.TEXTURE_2D, prevTex);
   gl.uniform1i(U.uPrev,0);
@@ -227,6 +261,7 @@ function frame(now){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   gl.bindTexture(gl.TEXTURE_2D, prevTex);
   gl.copyTexImage2D(gl.TEXTURE_2D,0,gl.RGBA,0,0,canvas.width,canvas.height,0);
+
   document.getElementById('mfill').style.width=(st.level*100)+'%';
   const side=st.inside>0.5?'INNER':'VOID';
   const grid=st.armed?(audio.beats?('фраза '+st.phrase+' · beat '+audio.beats):'ждёт удар'):'нет сетки';
