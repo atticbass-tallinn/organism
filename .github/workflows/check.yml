@@ -1,0 +1,42 @@
+name: check
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  organism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: required files
+        run: |
+          set -e
+          for f in index.html app.js shader.js netlify.toml; do
+            test -f "$f" || { echo "missing $f"; exit 1; }
+          done
+      - name: js syntax
+        run: |
+          node --check app.js
+          node --check shader.js
+      - name: html wiring
+        run: |
+          set -e
+          grep -q 'id="c"' index.html
+          grep -q 'src="./shader.js"' index.html
+          grep -q 'src="./app.js"' index.html
+          grep -q 'id="arm"' index.html
+          grep -q 'id="dev"' index.html
+          grep -q 'id="booth"' index.html
+      - name: netlify contexts
+        run: |
+          set -e
+          grep -q '\[context.production\]' netlify.toml
+          grep -q '\[context.branch-deploy\]' netlify.toml
+      - name: no extra engines
+        run: |
+          set -e
+          ! grep -qi 'd3-force\|three.js\|3d-force-graph' app.js shader.js index.html
